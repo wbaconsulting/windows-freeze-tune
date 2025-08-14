@@ -1,4 +1,5 @@
 name: CI
+
 on:
   push:
     branches: [ main ]
@@ -8,21 +9,53 @@ on:
 
 jobs:
   lint-and-package:
-    runs-on: windows-latest
+    # (Optional) pin to 2022 to silence the migration notice; remove this to stay on windows-latest
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
-      - name: Lint (fail only on errors, print all)
+      - name: Set up PSScriptAnalyzer
         shell: pwsh
         run: |
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
             Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
           }
-          $results = Invoke-ScriptAnalyzer -Path . -Recurse
-          $results | Format-Table RuleName,Severity,ScriptName,Line,Message -AutoSize
+
+      - name: Lint (fail only on errors, save results)
+        shell: pwsh
+        run: |
+          $settings = '.\.config\PSScriptAnalyzerSettings.psd1'
+          if (Test-Path $settings) {
+            $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings $settings
+          } else {
+            $results = Invoke-ScriptAnalyzer -Path . -Recurse
+          }
+
+          # Show a readable table in the job log
+          $results | Select RuleName,Severity,ScriptName,Line,Message | Format-Table -AutoSize
+
+          # Save reports as artifacts so you can inspect them
+          $results | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 pssa-results.json
+          $results | Export-Csv -NoTypeInformation pssa-results.csv
+
+          # Fail only if there are *errors*
           $errors = $results | Where-Object Severity -eq 'Error'
-          if ($errors) { Write-Error "PSScriptAnalyzer found $($errors.Count) error(s)."; exit 1 }
+          if ($errors.Count -gt 0) {
+            Write-Error "PSScriptAnalyzer found $($errors.Count) error(s)."
+            exit 1
+          } else {
+            Write-Host "PSScriptAnalyzer found $($results.Count) issue(s) (warnings/info). Continuing."
+            exit 0
+          }
+
+      - name: Upload lint results
+        uses: actions/upload-artifact@v4
+        with:
+          name: pssa-results
+          path: |
+            pssa-results.json
+            pssa-results.csv
 
       - name: Package artifact (zip)
         shell: pwsh
