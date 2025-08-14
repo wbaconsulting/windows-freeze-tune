@@ -18,38 +18,28 @@ $EventsTxt  = Join-Path $LogDir 'Critical-Events.txt'
 # ========= Helpers =========
 function Ensure-Dir($p){ if(-not(Test-Path $p)){ New-Item -ItemType Directory -Path $p -Force | Out-Null } }
 function Header($t){ Write-Host "`n=== $t ===" -ForegroundColor Cyan }
-function Normalize-Index($v){
-  if (-not $v) { return $null }
-  if ($v -is [int]) { return $v }
-  if ($v -match '^0x[0-9a-fA-F]+$') { return [Convert]::ToInt32($v,16) }
-  if ($v -match '^\d+$') { return [int]$v }
-  return $null
-}
+
 function ActiveSchemeGuid(){
-  try {
-    $raw = powercfg /GETACTIVESCHEME 2>$null
-    if ($raw) { return ($raw -replace '.*GUID:\s*([a-fA-F0-9-]+).*','$1') }
-  } catch {}
-  return $null
+  try { (powercfg /GETACTIVESCHEME) -replace '.*GUID:\s+([a-f0-9-]+).*','$1' } catch { '' }
 }
+
 function QueryPower($scheme,$sub,$setting){
   $ac=''; $dc=''
   try {
-    $out = powercfg /Q $scheme $sub $setting 2>$null
-    if ($out) {
-      $ac  = ($out | Select-String 'Current AC Power Setting Index:\s+(0x[0-9a-fA-F]+|\d+)').Matches.Value -replace '.*:\s+',''
-      $dc  = ($out | Select-String 'Current DC Power Setting Index:\s+(0x[0-9a-fA-F]+|\d+)').Matches.Value -replace '.*:\s+',''
-    }
+    $out = powercfg /Q $scheme $sub $setting
+    $ac  = ($out | Select-String 'Current AC Power Setting Index:\s+(0x[0-9a-f]+)').Matches.Value -replace '.*:\s+',''
+    $dc  = ($out | Select-String 'Current DC Power Setting Index:\s+(0x[0-9a-f]+)').Matches.Value -replace '.*:\s+',''
   } catch {}
   @{AC=$ac; DC=$dc}
 }
+
 function SetPower($scheme,$sub,$setting,$ac,$dc){
-  $acN = Normalize-Index $ac
-  $dcN = Normalize-Index $dc
-  if ($acN -ne $null) { try { powercfg /SETACVALUEINDEX $scheme $sub $setting $acN | Out-Null } catch {} }
-  if ($dcN -ne $null) { try { powercfg /SETDCVALUEINDEX $scheme $sub $setting $dcN | Out-Null } catch {} }
+  try { powercfg /SETACVALUEINDEX $scheme $sub $setting $ac | Out-Null } catch {}
+  try { powercfg /SETDCVALUEINDEX $scheme $sub $setting $dc | Out-Null } catch {}
   try { powercfg /S $scheme | Out-Null } catch {}
 }
+
+function _Coalesce([object]$a,[object]$b) { if ($null -ne $a -and "$a" -ne '') { $a } else { $b } }
 
 Ensure-Dir $BackupDir
 Ensure-Dir $LogDir
@@ -61,19 +51,19 @@ $SUB_PCI  = '501a4d13-42af-4429-9fd1-a8218c268e20' # PCIe
 $ASPM     = 'ee12f906-d277-404b-b6da-e5fa1a576df5' # Link State Power Mgmt (ASPM)
 
 $scheme = ActiveSchemeGuid
-if (-not $scheme) {
-  Write-Warning "Could not parse active power scheme GUID; using SCHEME_CURRENT alias."
-  $scheme = 'SCHEME_CURRENT'
-}
+if (-not $scheme) { Write-Warning "Could not read active power scheme; continuing anyway." }
 
+# ===== UNDO =====
 if ($Undo) {
   Header "Undoing changes (restore prior values)"
   if (!(Test-Path $BackupJson)) { Write-Warning "No backup found at $BackupJson"; exit 1 }
-  $bak = Get-Content $BackupJson | ConvertFrom-Json
+  $bak = Get-Content $BackupJson -Raw | ConvertFrom-Json
 
-  if ($bak.Power) {
-    SetPower ($bak.Power.Scheme   ?: $scheme) $SUB_USB $USB_SEL $bak.Power.USB.AC  $bak.Power.USB.DC
-    SetPower ($bak.Power.Scheme   ?: $scheme) $SUB_PCI $ASPM    $bak.Power.PCIe.AC $bak.Power.PCIe.DC
+  $restoreScheme = if ($bak.Power -and $bak.Power.Scheme) { $bak.Power.Scheme } else { $scheme }
+
+  if ($bak.Power -and $bak.Power.USB -and $bak.Power.PCIe) {
+    SetPower $restoreScheme $SUB_USB $USB_SEL $bak.Power.USB.AC  $bak.Power.USB.DC
+    SetPower $restoreScheme $SUB_PCI $ASPM    $bak.Power.PCIe.AC $bak.Power.PCIe.DC
     Write-Host "Restored USB selective suspend and PCIe ASPM."
   }
 
@@ -81,6 +71,7 @@ if ($Undo) {
     if ($bak.HibernateEnabled -eq 1) { powercfg -h on } else { powercfg -h off }
     Write-Host "Restored hibernation to $($bak.HibernateEnabled)."
   }
+
   Write-Host "Undo complete." -ForegroundColor Green
   exit 0
 }
@@ -95,8 +86,8 @@ try {
 } catch { Write-Warning "Could not export events: $_" }
 
 try {
-  $notOk = Get-PnpDevice | Where-Object Status -ne 'OK'
-  $notOk | Export-Csv -NoTypeInformation -Encoding UTF8 $DevicesCsv
+  $notOk = Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object Status -ne 'OK'
+  if ($notOk) { $notOk | Export-Csv -NoTypeInformation -Encoding UTF8 $DevicesCsv }
   Write-Host ("Devices not OK: {0} -> {1}" -f (@($notOk).Count), $DevicesCsv)
 } catch { Write-Warning "Could not export device list: $_" }
 
@@ -137,12 +128,11 @@ try {
   $pnplines = pnputil.exe /enum-drivers
   for($i=0;$i -lt $pnplines.Length;$i++){
     if($pnplines[$i] -match 'Original Name:\s+(xtu.*\.inf)'){
-      # look around the match for the Published Name
-      for($j=[Math]::Max(0,$i-6); $j -le [Math]::Min($pnplines.Length-1,$i+6); $j++){
+      for($j=[Math]::Max(0,$i-5); $j -le [Math]::Min($pnplines.Length-1,$i+5); $j++){
         if($pnplines[$j] -match 'Published Name:\s+(\S+)'){
           $pub = $Matches[1]
           Write-Host "Removing driver package $pub (XTU)"
-          try { & pnputil /delete-driver $pub /uninstall /force | Out-Null } catch {}
+          try { Start-Process pnputil -ArgumentList "/delete-driver $pub /uninstall /force" -Verb RunAs -Wait } catch {}
         }
       }
     }
