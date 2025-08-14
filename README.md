@@ -2,7 +2,6 @@
 ![Latest release](https://img.shields.io/github/v/release/wbaconsulting/windows-freeze-tune)
 ![Latest tag](https://img.shields.io/github/v/tag/wbaconsulting/windows-freeze-tune)
 
-
 # WindowsFreezeTune (by WBA Consulting)
 
 A tiny, reversible PowerShell toolkit that fixes common **random desktop freezes** by:
@@ -16,16 +15,47 @@ A tiny, reversible PowerShell toolkit that fixes common **random desktop freezes
 
 ---
 
-## TL;DR
+## TL;DR — Run it (3 easy options)
 
-**Run (as Admin):**
+> **Run in an elevated (Administrator) PowerShell.**  
+> PowerShell 5.1 is fine; PowerShell 7+ works too (replace `powershell` with `pwsh`).
+
+### Option A — Save to temp and run (recommended, also supports `-Undo`)
+
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\WindowsFreezeTune.ps1
+# Download
+$u   = 'https://raw.githubusercontent.com/wbaconsulting/windows-freeze-tune/main/scripts/WindowsFreezeTune.ps1'
+$dst = "$env:TEMP\WindowsFreezeTune.ps1"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+Invoke-WebRequest $u -UseBasicParsing -OutFile $dst
+
+# Run
+powershell -NoProfile -ExecutionPolicy Bypass -File $dst
+
+# Undo later (restores your original values)
+powershell -NoProfile -ExecutionPolicy Bypass -File $dst -Undo
 ```
 
-**Undo later:**
+### Option B — One‑liner (pipes & runs immediately)
+
+> Note: this **runs immediately** and does **not** support passing `-Undo`. Use Option A for `-Undo`.
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\WindowsFreezeTune.ps1 -Undo
+powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb https://raw.githubusercontent.com/wbaconsulting/windows-freeze-tune/main/scripts/WindowsFreezeTune.ps1 | iex"
+```
+
+### Option C — Stable release ZIP (pinned tag)
+
+```powershell
+$ver='v0.1.1'  # change when a newer release is available
+$zip="$env:TEMP\windows-freeze-tune.zip"
+$uri="https://github.com/wbaconsulting/windows-freeze-tune/releases/download/$ver/windows-freeze-tune.zip"
+
+Invoke-WebRequest $uri -UseBasicParsing -OutFile $zip
+Expand-Archive $zip -DestinationPath "$env:TEMP\wft" -Force
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\wft\scripts\WindowsFreezeTune.ps1"
+
+# Undo later
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\wft\scripts\WindowsFreezeTune.ps1" -Undo
 ```
 
 - Logs → `%Public%\WindowsFreezeTune-Logs\`  
@@ -54,7 +84,7 @@ Everything is written to a small JSON backup so you can revert.
 ## Requirements
 
 - Windows 10/11, **Administrator** PowerShell  
-- PowerShell 5.1+ (Windows PowerShell is fine)  
+- PowerShell 5.1+ (Windows PowerShell is fine) or PowerShell 7+  
 - Built-ins: `powercfg`, `pnputil`, `sc`, `Get-PnpDevice`, `Get-WinEvent`
 
 ---
