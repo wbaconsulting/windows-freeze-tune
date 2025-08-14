@@ -1,5 +1,7 @@
 ![CI](https://github.com/wbaconsulting/windows-freeze-tune/actions/workflows/ci.yml/badge.svg)
-![Release](https://img.shields.io/github/v/release/wbaconsulting/windows-freeze-tune)
+![Latest release](https://img.shields.io/github/v/release/wbaconsulting/windows-freeze-tune)
+![Latest tag](https://img.shields.io/github/v/tag/wbaconsulting/windows-freeze-tune)
+
 
 # WindowsFreezeTune (by WBA Consulting)
 
