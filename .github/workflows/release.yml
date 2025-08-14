@@ -1,0 +1,29 @@
+name: Release
+on:
+  push:
+    tags: [ 'v*.*.*' ]
+  workflow_dispatch: {}
+
+jobs:
+  build-and-release:
+    runs-on: windows-2022
+    permissions:
+      contents: write   # needed to create a release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Package zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path scripts/WindowsFreezeTune.ps1, README.md, LICENSE `
+            -DestinationPath windows-freeze-tune.zip -Force
+          Get-FileHash windows-freeze-tune.zip -Algorithm SHA256 | `
+            ForEach-Object { $_.Hash } | Out-File windows-freeze-tune.zip.sha256 -Encoding ASCII
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            windows-freeze-tune.zip
+            windows-freeze-tune.zip.sha256
+          generate_release_notes: true
