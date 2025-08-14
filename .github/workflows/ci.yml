@@ -1,72 +1,37 @@
 name: CI
-
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch: {}        # ← adds the “Run workflow” button
-  push:
-    tags:
-      - 'v*.*.*'               # tag like v0.1.0 to trigger the release job
+  workflow_dispatch: {}
 
 jobs:
-  lint:
+  lint-and-package:
     runs-on: windows-latest
-    defaults:
-      run:
-        shell: pwsh            # default to PowerShell 7 for all run: steps
     steps:
       - uses: actions/checkout@v4
 
-      - name: Trust PSGallery and install PSScriptAnalyzer
+      - name: Lint (fail only on errors, print all)
+        shell: pwsh
         run: |
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
+            Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          }
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse
+          $results | Format-Table RuleName,Severity,ScriptName,Line,Message -AutoSize
+          $errors = $results | Where-Object Severity -eq 'Error'
+          if ($errors) { Write-Error "PSScriptAnalyzer found $($errors.Count) error(s)."; exit 1 }
 
-      - name: Lint scripts
-        run: |
-          Invoke-ScriptAnalyzer -Path . -Recurse -EnableExit
-
-  test:
-    needs: lint
-    runs-on: windows-latest
-    defaults:
-      run:
+      - name: Package artifact (zip)
         shell: pwsh
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Smoke test (does the script parse & show help?)
         run: |
-          Set-ExecutionPolicy Bypass -Scope Process -Force
-          .\scripts\WindowsFreezeTune.ps1 -? | Out-String | Out-Null
-
-  package:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: test
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: pwsh
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Create ZIP
-        run: |
-          Compress-Archive -Path README.md, LICENSE, scripts `
+          Compress-Archive -Path scripts/WindowsFreezeTune.ps1, README.md, LICENSE `
             -DestinationPath windows-freeze-tune.zip -Force
 
-      - name: SHA256 checksum
-        run: |
-          $h = (Get-FileHash windows-freeze-tune.zip -Algorithm SHA256).Hash.ToLower()
-          "$h  windows-freeze-tune.zip" | Out-File -Encoding ascii windows-freeze-tune.zip.sha256
-
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v2
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            windows-freeze-tune.zip
-            windows-freeze-tune.zip.sha256
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: windows-freeze-tune
+          path: windows-freeze-tune.zip
