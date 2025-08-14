@@ -1,3 +1,6 @@
+![CI](https://github.com/wbaconsulting/windows-freeze-tune/actions/workflows/ci.yml/badge.svg)
+![Release](https://img.shields.io/github/v/release/wbaconsulting/windows-freeze-tune)
+
 # WindowsFreezeTune (by WBA Consulting)
 
 A tiny, reversible PowerShell toolkit that fixes common **random desktop freezes** by:
