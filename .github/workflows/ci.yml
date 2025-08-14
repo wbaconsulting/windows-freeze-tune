@@ -1,1 +1,28 @@
+name: CI
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  lint-and-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+      - name: Lint
+        shell: pwsh
+        run: Invoke-ScriptAnalyzer -Path ./scripts/WindowsFreezeTune.ps1 -Recurse -Severity Warning -EnableExit
+      - name: Package artifact (zip)
+        shell: pwsh
+        run: |
+          $out = "windows-freeze-tune.zip"
+          Compress-Archive -Path scripts/WindowsFreezeTune.ps1, README.md, LICENSE -DestinationPath $out -Force
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-freeze-tune
+          path: windows-freeze-tune.zip
 
